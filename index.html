@@ -121,24 +121,118 @@
     </div>
 
     <script>
-        function removeAccents(text) {
-            return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    function removeAccents(text) {
+        return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function createEmail(fullName) {
+        if (!fullName || typeof fullName !== 'string') return '';
+
+        const normalizedFullName = removeAccents(fullName).toUpperCase();
+        const nameParts = normalizedFullName.split(' ')
+            .filter(part => part && !['DE', 'DA', 'DOS', 'DO', 'DI'].includes(part));
+
+        if (nameParts.length < 2) return ''; // precisa de pelo menos 2 partes úteis
+
+        const initials = nameParts.slice(0, -1).map(part => part[0].toLowerCase()).join('').slice(0, 4);
+        const lastName = nameParts[nameParts.length - 1]?.toLowerCase();
+
+        if (!lastName) return '';
+
+        return `${initials}.${lastName}@branta.com.br`;
+    }
+
+    function generateEmails() {
+        const inputs = [
+            { id: 'name1', resultId: 'result1' },
+            { id: 'name2', resultId: 'result2' },
+            { id: 'name3', resultId: 'result3' }
+        ];
+
+        inputs.forEach(input => {
+            const fullName = document.getElementById(input.id).value.trim();
+            if (fullName) {
+                const email = createEmail(fullName);
+                document.getElementById(input.resultId).innerHTML = `
+                    <span><strong>${email}</strong></span>
+                    <button class="copy-btn" onclick="copyToClipboard('${email}')">Copiar</button>
+                `;
+            }
+        });
+    }
+
+    function clearResult(index) {
+        document.getElementById(`result${index}`).innerHTML = '';
+    }
+
+    function processExcel() {
+        const fileUpload = document.getElementById('file-upload').files[0];
+        if (!fileUpload) {
+            alert("Por favor, selecione um arquivo Excel primeiro.");
+            return;
         }
 
-        function generateEmails() {
-            const inputs = [
-                { id: 'name1', resultId: 'result1' },
-                { id: 'name2', resultId: 'result2' },
-                { id: 'name3', resultId: 'result3' }
-            ];
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-            inputs.forEach(input => {
-                const fullName = document.getElementById(input.id).value.trim();
-                if (fullName) {
-                    const email = createEmail(fullName);
-                    document.getElementById(input.resultId).innerHTML = `
-                        <span><strong>${email}</strong></span>
-                        <button class="copy-btn" onclick="copyToClipboard('${email}')">Copiar</button>
+            let uniqueNames = new Set();
+            let emails = [];
+            let emailSet = new Set();
+
+            jsonData.forEach(row => {
+                if (row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
+                    const fullName = row[0].trim();
+
+                    if (!uniqueNames.has(fullName)) {
+                        uniqueNames.add(fullName);
+
+                        let email = createEmail(fullName);
+
+                        // Verifica se o e-mail já existe e modifica se necessário
+                        if (emailSet.has(email)) {
+                            const nameParts = removeAccents(fullName).toLowerCase().split(' ');
+                            const initial = nameParts[0]?.[0] || 'x';
+                            const lastName = nameParts[nameParts.length - 1] || 'user';
+                            email = `${initial}.${lastName}@branta.com.br`;
+                        }
+
+                        if (email) {
+                            emailSet.add(email);
+                            emails.push([fullName, email]);
+                        }
+                    }
+                }
+            });
+
+            const worksheetResult = XLSX.utils.aoa_to_sheet([["Nome Completo", "E-mail"]].concat(emails));
+            const newWorkbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(newWorkbook, worksheetResult, "Resultado");
+            const resultFile = XLSX.write(newWorkbook, { bookType: 'xlsx', type: 'array' });
+
+            const blob = new Blob([resultFile], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const downloadBtn = document.getElementById('download-btn');
+            downloadBtn.href = url;
+            downloadBtn.download = 'emails_gerados.xlsx';
+            downloadBtn.style.display = 'inline-block';
+            downloadBtn.textContent = 'Baixar Resultado';
+        };
+
+        reader.readAsArrayBuffer(fileUpload);
+    }
+
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('E-mail copiado: ' + text);
+        });
+    }
+</script>
+
                     `;
                 }
             });
